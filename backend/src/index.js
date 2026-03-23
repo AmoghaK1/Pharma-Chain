@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
+const connectDB = require("./db/connection");
 const { getContract } = require("./blockchain/contract");
 const batchRoutes = require("./routes/batch");
 
@@ -30,5 +31,6 @@ const testBlockchainConnection = async () => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  await connectDB();  
   await testBlockchainConnection();
 });
