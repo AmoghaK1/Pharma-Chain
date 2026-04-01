@@ -1,36 +1,31 @@
-const express = require("express");
-const cors = require("cors");
-const dotenv = require("dotenv");
-const connectDB = require("./db/connection");
-const { getContract } = require("./blockchain/contract");
+const express     = require("express");
+const cors        = require("cors");
+const dotenv      = require("dotenv");
+const connectDB   = require("./db/connection");
+const { getReadContract } = require("./blockchain/contract");
 const batchRoutes = require("./routes/batch");
+const drugRoutes  = require("./routes/drug");    // 👈 NEW
+const adminRoutes = require("./routes/admin");   // 👈 NEW
 
 dotenv.config();
-
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 app.use("/api/batch", batchRoutes);
+app.use("/api/drug",  drugRoutes);   // 👈 NEW
+app.use("/api/admin", adminRoutes);  // 👈 NEW
 
-// Test route — confirms server is alive
-app.get("/", (req, res) => {
-  res.json({ message: "PharmaChain backend is running ✅" });
-});
-
-// Test blockchain connection on startup
-const testBlockchainConnection = async () => {
-  try {
-    const contract = await getContract();
-    console.log("✅ Blockchain connected | Contract:", contract.target);
-  } catch (err) {
-    console.error("❌ Blockchain connection failed:", err.message);
-  }
-};
+app.get("/", (req, res) => res.json({ message: "PharmaChain backend running ✅" }));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  await connectDB();  
-  await testBlockchainConnection();
+  await connectDB();
+  try {
+    const contract = getReadContract();
+    console.log("✅ Blockchain connected | Contract:", contract.target);
+  } catch (err) {
+    console.error("❌ Blockchain connection failed:", err.message);
+  }
 });

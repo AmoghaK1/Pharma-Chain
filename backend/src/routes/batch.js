@@ -1,74 +1,111 @@
 const express = require("express");
-const router = express.Router();
-const QRCode = require("qrcode");
-const { getContract } = require("../blockchain/contract");
-const Batch = require("../models/Batch"); // 👈 ADD THIS
+const router  = express.Router();
+const QRCode  = require("qrcode");
+const {
+  getManufacturerContract,
+  getDistributorContract,
+  getRetailerContract,
+  getReadContract
+} = require("../blockchain/contract");
+const Batch = require("../models/Batch");
 
-// ─────────────────────────────────────────
-// POST /api/batch/create
-// ─────────────────────────────────────────
+const STATUS_LABELS = ["Created", "With Distributor", "With Retailer", "Sold"];
+const ROLE_LABELS   = ["None", "Lab", "Manufacturer", "Distributor", "Retailer"];
+
+// POST /api/batch/create  (Manufacturer)
 router.post("/create", async (req, res) => {
   try {
-    const { batchId, manufacturerId, drugName, expiryDate } = req.body;
-
-    if (!batchId || !manufacturerId || !drugName || !expiryDate) {
-      return res.status(400).json({ 
-        error: "batchId, manufacturerId, drugName and expiryDate are required" 
-      });
+    const { batchId, drugId, expiryDate } = req.body;
+    if (!batchId || !drugId || !expiryDate) {
+      return res.status(400).json({ error: "batchId, drugId and expiryDate required" });
     }
 
-    // Step 1: Check if batch already exists in MongoDB
     const existing = await Batch.findOne({ batchId });
-    if (existing) {
-      return res.status(409).json({ error: "Batch ID already exists" });
-    }
+    if (existing) return res.status(409).json({ error: "Batch ID already exists" });
 
-    // Step 2: Store on blockchain first (source of truth)
-    const contract = await getContract();
-    const tx = await contract.createBatch(batchId, manufacturerId);
+    const contract = getManufacturerContract();
+    const tx = await contract.createBatch(batchId, drugId, expiryDate);
     await tx.wait();
 
-    // Step 3: Store metadata in MongoDB
+    // Fetch drug name from blockchain for MongoDB
+    const readContract = getReadContract();
+    const [,drugName] = await readContract.getDrug(drugId);
+
     const newBatch = new Batch({
-      batchId,
-      manufacturerId,
-      drugName,
-      expiryDate,
+      batchId, drugId, expiryDate, drugName,
+      manufacturerId: "MFR001",
       transactionHash: tx.hash
     });
     await newBatch.save();
 
-    // Step 4: Generate QR code
-    const verifyUrl = `http://localhost:5000/api/batch/verify/${batchId}`;
-    const qrCodeBase64 = await QRCode.toDataURL(verifyUrl);
+    const qrCode = await QRCode.toDataURL(
+      `http://localhost:5000/api/batch/verify/${batchId}`
+    );
 
     res.status(201).json({
-      success: true,
-      message: "Batch created ✅",
-      batchId,
-      manufacturerId,
-      drugName,
-      expiryDate,
-      transactionHash: tx.hash,
-      qrCode: qrCodeBase64
+      success: true, message: "Batch created ✅",
+      batchId, drugId, drugName, expiryDate,
+      transactionHash: tx.hash, qrCode
     });
 
   } catch (err) {
+    if (err.message.includes("Drug not registered")) {
+      return res.status(400).json({ error: "Drug ID not registered by any lab" });
+    }
     console.error(err);
     res.status(500).json({ error: "Failed to create batch" });
   }
 });
 
-// ─────────────────────────────────────────
-// GET /api/batch/verify/:batchId
-// ─────────────────────────────────────────
+// POST /api/batch/transfer  (Distributor or Retailer)
+router.post("/transfer", async (req, res) => {
+  try {
+    const { batchId, transferTo } = req.body;
+    // transferTo: "distributor" or "retailer"
+
+    if (!batchId || !transferTo) {
+      return res.status(400).json({ error: "batchId and transferTo required" });
+    }
+
+    const TARGET_MAP = {
+      distributor: process.env.DISTRIBUTOR_ADDRESS,
+      retailer:    process.env.RETAILER_ADDRESS
+    };
+
+    const targetAddress = TARGET_MAP[transferTo];
+    if (!targetAddress) {
+      return res.status(400).json({ error: "transferTo must be 'distributor' or 'retailer'" });
+    }
+
+    // Determine who is transferring (current owner)
+    // Simple logic: if transferring TO distributor → manufacturer signs
+    //               if transferring TO retailer    → distributor signs
+    const contract = transferTo === "distributor"
+      ? getManufacturerContract()
+      : getDistributorContract();
+
+    const tx = await contract.transferOwnership(batchId, targetAddress);
+    await tx.wait();
+
+    res.status(200).json({
+      success: true,
+      message: `Batch transferred to ${transferTo} ✅`,
+      batchId, transferTo,
+      transactionHash: tx.hash
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/batch/verify/:batchId  (Consumer)
 router.get("/verify/:batchId", async (req, res) => {
   try {
-    const { batchId } = req.params;
-
-    // Step 1: Check blockchain (source of truth)
-    const contract = await getContract();
-    const [isValid, manufacturerId, timestamp] = await contract.verifyBatch(batchId);
+    const contract = getReadContract();
+    const [isValid, manufacturerId, drugName, expiryDate, drugId, statusCode] =
+      await contract.verifyBatch(req.params.batchId);
 
     if (!isValid) {
       return res.status(404).json({
@@ -77,31 +114,51 @@ router.get("/verify/:batchId", async (req, res) => {
       });
     }
 
-    // Step 2: Fetch extra metadata from MongoDB
-    const batchMeta = await Batch.findOne({ batchId });
+    const batchMeta = await Batch.findOne({ batchId: req.params.batchId });
 
     res.status(200).json({
       success: true,
       verdict: "✅ AUTHENTIC",
-      batchId,
-      manufacturerId,
-      drugName: batchMeta?.drugName || "N/A",
-      expiryDate: batchMeta?.expiryDate || "N/A",
-      transactionHash: batchMeta?.transactionHash || "N/A",
-      registeredAt: new Date(Number(timestamp) * 1000).toLocaleString()
+      batchId: req.params.batchId,
+      manufacturerId, drugName, expiryDate, drugId,
+      status: STATUS_LABELS[statusCode] || "Unknown",
+      transactionHash: batchMeta?.transactionHash || "N/A"
     });
 
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: "Verification failed" });
+  }
+});
+
+// GET /api/batch/history/:batchId  (Full supply chain journey)
+router.get("/history/:batchId", async (req, res) => {
+  try {
+    const contract = getReadContract();
+    const [actions, byIds, roleIds, timestamps] =
+      await contract.getBatchHistory(req.params.batchId);
+
+    const history = actions.map((action, i) => ({
+      action,
+      by:        byIds[i],
+      role:      ROLE_LABELS[roleIds[i]],
+      timestamp: new Date(Number(timestamps[i]) * 1000).toLocaleString()
+    }));
+
+    res.status(200).json({
+      success: true,
+      batchId: req.params.batchId,
+      history
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch history" });
   }
 });
 
 // GET /api/batch/qr/:batchId
 router.get("/qr/:batchId", async (req, res) => {
   try {
-    const { batchId } = req.params;
-    const verifyUrl = `http://localhost:5000/api/batch/verify/${batchId}`;
+    const verifyUrl = `http://localhost:5000/api/batch/verify/${req.params.batchId}`;
     res.setHeader("Content-Type", "image/png");
     QRCode.toFileStream(res, verifyUrl);
   } catch (err) {

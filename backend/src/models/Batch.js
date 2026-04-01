@@ -6,6 +6,10 @@ const batchSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
+  drugId: { 
+    type: String, 
+    required: true 
+  },
   manufacturerId: {
     type: String,
     required: true
