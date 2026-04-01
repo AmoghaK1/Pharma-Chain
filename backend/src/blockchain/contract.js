@@ -11,12 +11,30 @@ const provider = new ethers.JsonRpcProvider(process.env.RPC_URL, {
   name: "hardhat"
 });
 
+const getConfiguredContractAddress = () => {
+  const address = process.env.CONTRACT_ADDRESS;
+  if (!address) {
+    throw new Error("CONTRACT_ADDRESS is missing in backend/.env");
+  }
+  return address;
+};
+
+const assertContractDeployed = async () => {
+  const address = getConfiguredContractAddress();
+  const code = await provider.getCode(address);
+  if (code === "0x") {
+    throw new Error(
+      `No contract bytecode found at CONTRACT_ADDRESS ${address}. Deploy PharmaChain and update backend/.env.`
+    );
+  }
+};
+
 
 // Returns contract signed by a specific private key
 const getContractAs = (privateKey) => {
   const wallet = new ethers.Wallet(privateKey, provider);
   return new ethers.Contract(
-    process.env.CONTRACT_ADDRESS,
+    getConfiguredContractAddress(),
     PharmaChainABI.abi,
     wallet
   );
@@ -32,7 +50,7 @@ const getRetailerContract     = () => getContractAs(process.env.RETAILER_PRIVATE
 // Read-only contract (for verify/history — no signer needed)
 const getReadContract = () => {
   return new ethers.Contract(
-    process.env.CONTRACT_ADDRESS,
+    getConfiguredContractAddress(),
     PharmaChainABI.abi,
     provider
   );
@@ -44,5 +62,6 @@ module.exports = {
   getManufacturerContract,
   getDistributorContract,
   getRetailerContract,
-  getReadContract
+  getReadContract,
+  assertContractDeployed
 };

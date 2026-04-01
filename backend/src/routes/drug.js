@@ -33,6 +33,11 @@ router.post("/register", async (req, res) => {
     });
 
   } catch (err) {
+    if (err.reason === "Unauthorized role" || err.message.includes("Unauthorized role")) {
+      return res.status(403).json({
+        error: "Lab role not assigned for configured LAB_ADDRESS. Run role assignment after each fresh contract deploy."
+      });
+    }
     if (err.message.includes("Drug already registered")) {
       return res.status(409).json({ error: "Drug already registered on blockchain" });
     }

@@ -49,6 +49,16 @@ router.post("/create", async (req, res) => {
     });
 
   } catch (err) {
+    if (err.reason === "Unauthorized role" || err.message.includes("Unauthorized role")) {
+      return res.status(403).json({
+        error: "Manufacturer role not assigned for configured MANUFACTURER_ADDRESS. Run role assignment after each fresh contract deploy."
+      });
+    }
+    if (err.code === "BAD_DATA") {
+      return res.status(500).json({
+        error: "Blockchain contract call returned empty data. Check CONTRACT_ADDRESS and deployed network."
+      });
+    }
     if (err.message.includes("Drug not registered")) {
       return res.status(400).json({ error: "Drug ID not registered by any lab" });
     }
@@ -95,6 +105,11 @@ router.post("/transfer", async (req, res) => {
     });
 
   } catch (err) {
+    if (err.reason === "Unauthorized role" || err.message.includes("Unauthorized role")) {
+      return res.status(403).json({
+        error: "Required role is missing for current signer. Ensure Manufacturer/Distributor roles are assigned on this deployment."
+      });
+    }
     console.error(err);
     res.status(500).json({ error: err.message });
   }
@@ -126,6 +141,11 @@ router.get("/verify/:batchId", async (req, res) => {
     });
 
   } catch (err) {
+    if (err.code === "BAD_DATA") {
+      return res.status(500).json({
+        error: "Blockchain contract call returned empty data. Check CONTRACT_ADDRESS and deployed network."
+      });
+    }
     res.status(500).json({ error: "Verification failed" });
   }
 });
@@ -151,6 +171,11 @@ router.get("/history/:batchId", async (req, res) => {
     });
 
   } catch (err) {
+    if (err.code === "BAD_DATA") {
+      return res.status(500).json({
+        error: "Blockchain contract call returned empty data. Check CONTRACT_ADDRESS and deployed network."
+      });
+    }
     res.status(500).json({ error: "Failed to fetch history" });
   }
 });
