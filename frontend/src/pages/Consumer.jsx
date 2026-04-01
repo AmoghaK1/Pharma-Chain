@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import Navbar from "../components/Navbar";
 import { Html5Qrcode } from "html5-qrcode";
+import { API_BASE_URL } from "../config/api";
 
-const API = "http://localhost:5000/api";
+const API = API_BASE_URL;
 
 const STEPS = [
   { role:"Lab",          icon:"🧪", color:"#a78bfa", label:"Research Lab"  },

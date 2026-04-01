@@ -11,6 +11,7 @@ const Batch = require("../models/Batch");
 
 const STATUS_LABELS = ["Created", "With Distributor", "With Retailer", "Sold"];
 const ROLE_LABELS   = ["None", "Lab", "Manufacturer", "Distributor", "Retailer"];
+const PUBLIC_API_BASE_URL = (process.env.PUBLIC_API_BASE_URL || "http://localhost:5000/api").replace(/\/+$/, "");
 
 // POST /api/batch/create  (Manufacturer)
 router.post("/create", async (req, res) => {
@@ -38,9 +39,7 @@ router.post("/create", async (req, res) => {
     });
     await newBatch.save();
 
-    const qrCode = await QRCode.toDataURL(
-      `http://localhost:5000/api/batch/verify/${batchId}`
-    );
+    const qrCode = await QRCode.toDataURL(`${PUBLIC_API_BASE_URL}/batch/verify/${batchId}`);
 
     res.status(201).json({
       success: true, message: "Batch created ✅",
@@ -183,7 +182,7 @@ router.get("/history/:batchId", async (req, res) => {
 // GET /api/batch/qr/:batchId
 router.get("/qr/:batchId", async (req, res) => {
   try {
-    const verifyUrl = `http://localhost:5000/api/batch/verify/${req.params.batchId}`;
+    const verifyUrl = `${PUBLIC_API_BASE_URL}/batch/verify/${req.params.batchId}`;
     res.setHeader("Content-Type", "image/png");
     QRCode.toFileStream(res, verifyUrl);
   } catch (err) {

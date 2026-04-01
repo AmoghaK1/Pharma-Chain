@@ -1,7 +1,8 @@
 import { useState } from "react";
 import Navbar from "../components/Navbar";
+import { API_BASE_URL } from "../config/api";
 
-const API = "http://localhost:5000/api";
+const API = API_BASE_URL;
 
 export default function Distributor({ onLogout }) {
   const [verifyId,  setVerifyId]  = useState("");
